@@ -1,0 +1,10 @@
+setuptools
+fire
+
+# UI
+selenium
+
+# Lint
+flake8==6.1.0
+pep8-naming==0.13.3
+flake8-polyfill==1.0.2
