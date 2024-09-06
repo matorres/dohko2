@@ -129,6 +129,7 @@ class InstantOnDynamicEnv(gym.Env):
         # Perform action
         # modifiable_elements = ["input", "button", "select", "textarea", "a", "nav-link"]
         try:
+            self.wait.until(expected_conditions.element_to_be_clickable(element))
             if element_type == 'input':
                 element.clear()
                 element.send_keys('FIXME')
@@ -252,7 +253,8 @@ class InstantOnDynamicEnv(gym.Env):
             'page-link',
             'navbar-toggler px-3 mr-0',
             'filterTable',
-            'close'
+            'close',
+            'selectpicker'
         ]
 
         # JavaScript to filter elements and get necessary attributes (class, id, text, etc.)
@@ -276,7 +278,10 @@ class InstantOnDynamicEnv(gym.Env):
             id_type = None
             id_value = None
             for idt in ['id', 'text', 'accessible_name', 'data-id']:
-                id_value = element.get_attribute(idt)
+                try:
+                    id_value = element.get_attribute(idt)
+                except Exception:
+                    continue
                 if id_value:
                     id_type = idt
                     break
@@ -284,6 +289,7 @@ class InstantOnDynamicEnv(gym.Env):
             # If no valid ID found, log errors and skip
             if not id_value:
                 log.error(f'Unable to get a valid id for element {element.id}')
+                import pdb; pdb.set_trace()
                 log.warning(f'{element.get_dom_attribute("name")=}')
                 log.warning(f'{element.get_dom_attribute("class")=}')
                 log.warning(f'{element.get_dom_attribute("data-id")=}')

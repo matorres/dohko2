@@ -67,11 +67,11 @@ class QLearningAgent:
 
     def update_actions(self, env):
 
-        update_prob = np.random.rand()
-        # update_prob = 0.2
+        # FIXME: Add new actions always
+        update_prob = 1
 
         # Identify potential new actions
-        if env.action_space and update_prob > 0.1:
+        if env.action_space and np.random.rand() > update_prob:
         # if env.action_space and self.epsilon < update_prob:
             return
 
@@ -88,6 +88,6 @@ class QLearningAgent:
         #     self.q_table[state_tuple] = np.append(self.q_table[state_tuple], [np.zeros(new_actions)])
 
         for state in self.q_table.keys():
-            self.q_table[state] = np.append(self.q_table[state], [np.zeros(new_actions)])
+            self.q_table[state] = np.append(self.q_table[state], [np.ones(new_actions)])
 
         # log.info('Update actions end')
