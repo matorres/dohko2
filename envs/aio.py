@@ -1,8 +1,10 @@
 import gym
 import numpy as np
 import logging as log
+import urllib3
 
 from time import sleep
+from os import environ
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions
@@ -12,10 +14,11 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service as ChromeService
 
 from telnetlib import Telnet
+from requests import Session as http_session  # noqa
 
 from sentence_transformers import SentenceTransformer
 
-log.basicConfig(format='%(asctime)s,%(msecs)03.0f | %(levelname)-8s | %(module)-5s:%(lineno)-4d | %(message)s', level=log.INFO)
+log.basicConfig(format='%(asctime)s | %(levelname)-8s | %(module)-5s:%(lineno)-4d | %(message)s', level=log.INFO)
 
 modifiable_elements = ["input", "button", "select", "textarea", "a"]
 
@@ -23,7 +26,8 @@ class InstantOnDynamicEnv(gym.Env):
     def __init__(
             self, goal,
             address='http://192.168.1.1', user='admin', password='aruba123',
-            console_ip='192.168.1.1', console_port=23, console_timeout=10):
+            console_ip='192.168.1.1', console_port=23, console_timeout=10,
+            headless=False):
 
         # Class variables
         self.address = address
@@ -32,6 +36,8 @@ class InstantOnDynamicEnv(gym.Env):
         self.console_ip = console_ip
         self.console_port = console_port
         self.console_timeout = console_timeout
+        self.serial_number = 'CN2ZLJC041'
+        self.headless = headless
 
         # Environment initialization
         super(InstantOnDynamicEnv, self).__init__()
@@ -46,16 +52,28 @@ class InstantOnDynamicEnv(gym.Env):
         # Reward signal variables and functions
         self.goal = goal
 
+        environ['WDM'] = '0'
+        environ['WDM_LOG'] = '0'
+        environ['WDM_SSL_VERIFY'] = '0'
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
         # Web driver initialization
-        self.driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
+        options = webdriver.ChromeOptions()
+        options.add_argument("--start-maximized")
+        if self.headless:
+            options.add_argument("--headless")
+        self.driver = webdriver.Chrome(
+            service=ChromeService(ChromeDriverManager().install()),
+            options=options)
         self.wait = WebDriverWait(self.driver, 10)
         self.driver.get(self.address)
+
 
         # Login
         self._login()
         self._wait_js_queries()
 
-        self.current_state = self.current_state = self.get_state()
+        self.current_state = self.get_state(log_enable=False)
 
     def __delf__(self):
         self.driver.close()
@@ -117,7 +135,7 @@ class InstantOnDynamicEnv(gym.Env):
             log.warning(f'Unable to find element ({element_id}) required to perform the action')
             reward = -10
             done = False
-            return np.array([self.current_state]), reward, done, {}
+            return self.current_state, reward, done, {}
 
         # Scroll to the required element
         self.driver.execute_script(
@@ -128,25 +146,30 @@ class InstantOnDynamicEnv(gym.Env):
 
         # Perform action
         # modifiable_elements = ["input", "button", "select", "textarea", "a", "nav-link"]
+        apply_required = False
         try:
             self.wait.until(expected_conditions.element_to_be_clickable(element))
             if element_type == 'input':
                 element.clear()
-                element.send_keys('FIXME')
+                element.send_keys('textplaceholder')
+                apply_required = True
 
             if element_type == 'text':
                 element.clear()
-                element.send_keys('FIXME')
+                element.send_keys('textplaceholder')
+                apply_required = True
 
             elif element_type == "button":
                 element.click()
+                apply_required = True
 
             elif element_type == 'select':
                 import pdb; pdb.set_trace()
 
             elif element_type == 'textarea':
                 element.clear()
-                element.send_keys('FIXME')
+                element.send_keys('textplaceholder')
+                apply_required = True
 
             elif element_type == 'a':
                 element.click()
@@ -158,19 +181,20 @@ class InstantOnDynamicEnv(gym.Env):
                 log.error(f'Unsupported element type, {element_type} for element {element_id}.')
         except Exception as error:
             # Case 2: Perform the action is not posible
-            log.warning(f'Unable to execute action {action} [{element_id} - {element_type}]')
+            log.warning(f'Unable to execute action')
             reward = -10
             done = False
-            return np.array([self.current_state]), reward, done, {}
+            return self.current_state, reward, done, {}
         # ....
 
         # Apply changes
-        try:
-            self.wait.until(
-                expected_conditions.element_to_be_clickable(
-                    (By.ID, "btnApply"))).click()
-        except Exception:
-            log.warning('Unable to apply changes')
+        if apply_required:
+            try:
+                self.wait.until(
+                    expected_conditions.element_to_be_clickable(
+                        (By.ID, "btnApply"))).click()
+            except Exception:
+                log.warning('Unable to apply changes')
 
         # Check if the use interface generated an error
         js_code = """
@@ -181,45 +205,91 @@ class InstantOnDynamicEnv(gym.Env):
         """
         has_error = self.driver.execute_script(js_code)
         if has_error:
-            log.warning(f'Unable to execute action {action} [{element_id} - {element_type}]')
+            log.warning(f'Unable to execute action')
             reward = -5
             done = False
             self.current_state = self.get_state()
-            return np.array([self.current_state]), reward, done, {}
+            return self.current_state, reward, done, {}
+
+        # log.info(self.current_config)
 
         new_config = self._console_get_config()
         added_lines = set(new_config) - set(self.current_config)
         removed_lines = set(self.current_config) - set(new_config)
-        new_lines = list(added_lines.union(removed_lines))
+        changed_lines = list(added_lines.union(removed_lines))
 
+        self.current_config = new_config[::]
         self.current_state = self.get_state()
 
-        if len(new_lines) == 0:
+        if len(changed_lines) == 0:
             # Case 3: Change didn't affect the environment
-            log.warning(f'Action did not affect the environment {action} [{element_id} - {element_type}]')
-            reward = 0
+            log.warning(f'Action did not affect the environment')
+            reward = -1
         else:
             # Case 4: Change affect the environment
-            log.warning(f'Action affected the environment {action} [{element_id} - {element_type}]')
-            reward = 3
+            log.info(f'Action affected the environment')
+            log.info(f'Added lines: {added_lines}')
+            log.info(f'Removed lines: {removed_lines}')
 
-        hits = len(list(set(new_config).intersection(self.goal)))
+            if added_lines.intersection(set(self.goal)):
+                log.info(f'New lines got the environment closer to the goal')
+                reward = 5
+            elif removed_lines.intersection(set(self.goal)):
+                log.info(f'New lines got the environment farther to the goal')
+                reward = -5
+            else:
+                log.warning(f'New lines did not affect the environment goal')
+                reward = -1
+
+        hits = self._get_config_hits(new_config, self.goal)
+        # print(f'{hits=}')
         done = (hits == len(self.goal))
 
         # Get the reward and done
         log.debug(f"Action: {action} -> Reward: {reward}, Done: {done}")
 
         # Update the state
-        return np.array([self.current_state]), reward, done, {}
+        return self.current_state, reward, done, {}
 
     def reset(self):
 
-        # Reset device
-        # ...
+        # Physical factory reset
+        # self._console_reboot()
 
-        sleep(3)
-        self.current_state = self.current_state = self.get_state()
-        return np.array([self.current_state])
+        # self._restapi_reboot()
+        # self._set_mgmt_local_mode()
+        # self._console_set_credentials()
+
+        self._console_soft_reboot()
+
+        self.driver.quit()
+
+        options = webdriver.ChromeOptions()
+        options.add_argument("--start-maximized")
+        if self.headless:
+            options.add_argument("--headless")
+        self.driver = webdriver.Chrome(
+            service=ChromeService(ChromeDriverManager().install()),
+            options=options)
+        self.wait = WebDriverWait(self.driver, 10)
+        self.driver.get(self.address)
+
+        for _ in range(3):
+            try:
+                self._login()
+                break
+            except Exception:
+                self.driver.get(self.address)
+                self.driver.refresh()
+        else:
+            raise Exception('Unable to login')
+
+        self._wait_js_queries()
+
+        # sleep(3)
+        self.current_config = self._console_get_config()
+        self.current_state = self.get_state(log_enable=False)
+        return self.current_state
 
     def close(self):
 
@@ -245,29 +315,81 @@ class InstantOnDynamicEnv(gym.Env):
         #     elements = self.driver.find_elements(By.TAG_NAME, tag)
         #     interactive_elements.extend(elements)
 
-        interactive_elements = self.driver.find_elements(By.XPATH, "//input | //button | //a | //select | //textarea")
+        for _ in range(3):
+            try:
+                interactive_elements = self.driver.find_elements(By.XPATH, "//input | //button | //a | //select | //textarea")
 
-        # Step 2: Filter visible and unsupported classes in one go using JavaScript
-        unsupported_classes = [
-            'btn dropdown-toggle btn-light',
-            'page-link',
-            'navbar-toggler px-3 mr-0',
-            'filterTable',
-            'close',
-            'selectpicker'
+                # Step 2: Filter visible and unsupported classes in one go using JavaScript
+                unsupported_classes = [
+                    'btn dropdown-toggle btn-light',
+                    'page-link',
+                    'navbar-toggler px-3 mr-0',
+                    'filterTable',
+                    # 'close',
+                    'selectpicker',
+                    'form-control timepick-input',
+                    'form-control datetimepicker-input',
+                    'dt-checkboxes'
+                ]
+
+                # JavaScript to filter elements and get necessary attributes (class, id, text, etc.)
+                js_code = """
+                    return arguments[0].map(el => ({
+                        element: el,
+                        displayed: el.offsetParent !== null,
+                        className: el.className
+                    })).filter(el => el.displayed && !arguments[1].includes(el.className));
+                """
+
+                # Execute JavaScript to filter visible elements and unsupported classes
+                filtered_elements = self.driver.execute_script(js_code, interactive_elements, unsupported_classes)
+                break
+            except Exception:
+                log.error('Unable to find actions.')
+                sleep(1)
+        else:
+            raise('Unable to find actions.')
+
+        # FIXME: Forbidden actions, used to limit the scope
+        forbidden_actions = [
+            # 'Setup Network',
+            'Get Connected',
+            'menuIPv4Setup',
+            'menuIPv6Setup',
+            'rdoIPv4AddressType_0',
+            'rdoIPv4AddressType_1',
+            'txtIPv4Address',
+            'txtIPv4SubnetMask',
+            'txtIPv4Gateway',
+            'menuHttp',
+            'menuHttps',
+            'chkHttpState',
+            'txtHttpPort',
+            'txtHttpSoftTimeout',
+            'txtHttpHardTimeout',
+
+            'System Time',
+            'User Management',
+
+            'DHCP Server',
+            'Schedule Configuration',
+            'DNS Configuration',
+            'Stacking Configuration',
+
+            'Switching',
+            'Spanning Tree',
+            'VLAN',
+            'Neighbor Discovery',
+            'Power Over Ethernet',
+            'Routing',
+            'Quality of Service',
+            'Security',
+            'Diagnostics',
+            'Maintenance',
+            'btnApply',
+            'btnLogs',
+            'lblLogOut'
         ]
-
-        # JavaScript to filter elements and get necessary attributes (class, id, text, etc.)
-        js_code = """
-            return arguments[0].map(el => ({
-                element: el,
-                displayed: el.offsetParent !== null,
-                className: el.className
-            })).filter(el => el.displayed && !arguments[1].includes(el.className));
-        """
-
-        # Execute JavaScript to filter visible elements and unsupported classes
-        filtered_elements = self.driver.execute_script(js_code, interactive_elements, unsupported_classes)
 
         # Step 3: Process filtered elements and build the actions list and dictionary
         new_actions = 0
@@ -277,7 +399,8 @@ class InstantOnDynamicEnv(gym.Env):
             # Fetch element attributes for known actions in one go
             id_type = None
             id_value = None
-            for idt in ['id', 'text', 'accessible_name', 'data-id']:
+
+            for idt in ['id', 'text', 'accessible_name', 'data-id', 'outerText']:
                 try:
                     id_value = element.get_attribute(idt)
                 except Exception:
@@ -286,13 +409,16 @@ class InstantOnDynamicEnv(gym.Env):
                     id_type = idt
                     break
 
+            if id_value in forbidden_actions:
+                continue
+
             # If no valid ID found, log errors and skip
             if not id_value:
-                log.error(f'Unable to get a valid id for element {element.id}')
+                name = element.get_dom_attribute("name")
+                clss = element.get_dom_attribute("class")
+                data_id = element.get_dom_attribute("data-id")
+                log.error(f'Unable to get a valid id for element {element.id}, name={name}, class={clss}, data-id={data_id}')
                 import pdb; pdb.set_trace()
-                log.warning(f'{element.get_dom_attribute("name")=}')
-                log.warning(f'{element.get_dom_attribute("class")=}')
-                log.warning(f'{element.get_dom_attribute("data-id")=}')
                 continue
 
             # Add the element to the actions list/dictionary if it's not already there
@@ -301,12 +427,15 @@ class InstantOnDynamicEnv(gym.Env):
                 self.actions_list.append(id_value)
                 self.actions_dict[id_value] = (id_type, element_type)
                 new_actions += 1
-                log.info(f'Adding a new action ... {id_value} [{element_type}]')
+                if new_actions == 1:
+                    log.info(f'Adding a new action ... {id_value} [{element_type}]')
+                else:
+                    log.info(f'                    ... {id_value} [{element_type}]')
 
         if new_actions != 0:
             log.info(f"New actions were added to the env [{new_actions}] ... ")
         else:
-            log.info("No new actions we found ...")
+            log.debug("No new actions we found ...")
             return 0
 
         # # Logic to dynamically add a new action
@@ -317,21 +446,21 @@ class InstantOnDynamicEnv(gym.Env):
 
         return new_actions
 
-    def get_state(self):
+    def get_state(self, log_enable=True):
 
         self._wait_js_queries()
         sleep(0.5)
 
         # # Get the interactive of all the visible/enabled/present elements in the page.
         interactive_elements = self.driver.find_elements(By.XPATH, "//input | //button | //a | //select | //textarea")
-        print(f'num interactive_elements: {len(interactive_elements)}')
+        # print(f'num interactive_elements: {len(interactive_elements)}')
 
         # Use JavaScript to get visible and enabled elements in one batch
         js_code = """
             return Array.from(arguments[0]).filter(el => el.offsetParent !== null && !el.disabled);
         """
         enabled_elements = self.driver.execute_script(js_code, interactive_elements)
-        print(f'num enabled_elements: {len(enabled_elements)}')
+        # print(f'num enabled_elements: {len(enabled_elements)}')
 
         # Get unique names of the elements (by tag name, id, name, or text)
         unique_elements = set()
@@ -358,24 +487,31 @@ class InstantOnDynamicEnv(gym.Env):
                 element_name += f" '{el['text']}'"  # Add text content if present
             unique_elements.add(element_name)
 
-        print(f'num unique_elements: {len(unique_elements)}')
-
-        # FIXME: Include elements from the configfile
-
         # Sort the items alphabetically and join them to make a long string.
         # unique_elements.sort()
-        view_key_str = ' '.join(unique_elements)
+        view_str = ' '.join(unique_elements)
+
+        # print(f'num unique_elements: {len(unique_elements)}')
+
+        config_file = self._console_get_config()
+        config_file.sort()
+        config_file_str = ' '.join(config_file)
+
+        key_str = view_str + config_file_str
 
         # FIXME: Hash is just to make sure same elements are present in the same page view.
         #        Best solution should be a word embeding.
         import hashlib
-        view_hash = hashlib.sha1(view_key_str.encode("utf-8")).hexdigest()
 
-        print(view_hash)
+        state_embeddings = self.model.encode(key_str)
+        state_embeddings = tuple(state_embeddings)
 
+        state_hash = hashlib.sha1(str(state_embeddings).encode("utf-8")).hexdigest()
 
-        # state_embeddings = self.model.encode(data)
-        return view_hash
+        if log_enable:
+            log.info(f'State: {state_hash}')
+
+        return state_embeddings
 
     #
     def _console_get_config(self):
@@ -399,7 +535,17 @@ class InstantOnDynamicEnv(gym.Env):
         limit = 3
         for it in range(3):
             tn.write(b'show running-config\n')
-            for _ in range(5):
+            sleep(.1)
+            tn.write(b' ')
+            sleep(.1)
+            tn.write(b' ')
+            sleep(.1)
+            tn.write(b'\r\n')
+            sleep(.1)
+            tn.write(b'\r\n')
+            sleep(.1)
+            tn.write(b'\r\n')
+            for _ in range(10):
                 tn.write(b' ')
             ret = tn.read_until(b"#", self.console_timeout).decode()
             for line in ret.split('\n'): log.debug(line)
@@ -411,7 +557,7 @@ class InstantOnDynamicEnv(gym.Env):
                 for line in result:
                     log.debug(line)
 
-                ret = tn.read_until(b"\n\n").decode()
+                ret = tn.read_until(b"\n", self.console_timeout).decode()
                 for line in ret.split('\n'): log.debug(line)
                 continue
             break
@@ -427,6 +573,8 @@ class InstantOnDynamicEnv(gym.Env):
                 continue
             elif 'config-file-header' in line:
                 continue
+            elif 'More: <space>' in line:
+                continue
             elif '#' in line:
                 continue
             elif line == '\r':
@@ -435,23 +583,239 @@ class InstantOnDynamicEnv(gym.Env):
                 output.append(line.replace('\r', ''))
         return output
 
-    def _get_env_reward(self):
+    def _console_reboot(self):
+        tn = Telnet(self.console_ip, self.console_port, timeout=self.console_timeout)
 
-        # Reward cases:
-        # 1. Action is unavailable (not visible or disabled).
-        # 2. Action generated an error (GUI showed an error).
-        # 3. Action didn't generate any change in the environment (config file didn't change).
-        # 4. Action generated a change (any change).
-        # 5. Action generated a desired change (is this tied to the current goal?).
+        # Check if user is already logged in
+        # tn.write(b"exit\n")
 
-        reward_score = np.random.randint(-1, 1)
+        ret = tn.read_until(b"User Name:").decode()
+        for line in ret.split('\n'): log.debug(line)
 
-        current_config = self._console_get_config()
-        hits = len(list(set(current_config).intersection(self.goal)))
-        done = (hits == len(self.goal))
-        # done = np.random.randint(-1, 1) > 0.8
+        tn.write(self.user.encode() + b"\n")
+        ret = tn.read_until(b"Password:").decode()
+        for line in ret.split('\n'): log.debug(line)
 
-        return reward_score, done
+        tn.write(self.password.encode() + b"\n")
+        ret = tn.read_until(b"#").decode()
+        for line in ret.split('\n'): log.debug(line)
+
+        tn.write(b"reload\n")
+        ret = tn.read_until(b"\n").decode()
+        tn.write(b'Y')
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+
+        sleep(2)
+
+        tn.write(b'Y')
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+
+        sleep(60)
+
+        # Wait until the reboot has finished, timeout is higher here
+        for i in range(30):
+            ret = tn.read_until(b"User Name:", 10).decode()
+            log.debug(ret)
+            if "User Name:" in ret:
+                break
+            if i == 18:
+                tn.close()
+                tn = Telnet(self.console_ip, self.console_port, timeout=self.console_timeout)
+        else:
+            log.error('Unable to get the login prompt')
+        tn.write(self.user.encode() + b"\n")
+
+        # After a factory reset, password is empty
+        ret = tn.read_until(b"Password:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(b"\n")
+
+        ret = tn.read_until(b"Enter new username:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(self.user.encode() + b"\n")
+
+        ret = tn.read_until(b"Enter new password:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(self.password.encode() + b"\n")
+
+        ret = tn.read_until(b"Confirm new password:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(self.password.encode() + b"\n")
+
+        tn.write(b"exit\n")
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.close()
+
+    def _console_soft_reboot(self):
+        tn = Telnet(self.console_ip, self.console_port, timeout=self.console_timeout)
+
+        # Check if user is already logged in
+        # tn.write(b"exit\n")
+
+        ret = tn.read_until(b"User Name:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(self.user.encode() + b"\n")
+
+        ret = tn.read_until(b"Password:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(self.password.encode() + b"\n")
+
+        ret = tn.read_until(b"#").decode()
+        for line in ret.split('\n'): log.debug(line)
+
+        tn.write(b"configure\n")
+        ret = tn.read_until(b"\n").decode()
+
+        tn.write(b"hostname " + self.serial_number.encode() + b"\n")
+        ret = tn.read_until(b"\n").decode()
+
+        soft_reset_cmds = [
+            'no snmp-server location',
+            'no snmp-server contact',
+            'no clock source sntp',
+            'no sntp unicast client enable',
+            'no sntp unicast client poll',
+            'no sntp server',
+            'no sntp port'
+        ]
+
+        for cmd in soft_reset_cmds:
+            tn.write(cmd.encode() + b"\n")
+            ret = tn.read_until(b"\n").decode()
+            for line in ret.split('\n'): log.debug(line)
+
+        tn.write(b"exit\n")
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.close()
+
+    def _console_set_credentials(self):
+        tn = Telnet(self.console_ip, self.console_port, timeout=self.console_timeout)
+
+        # Wait until the reboot has finished, timeout is higher here
+        for i in range(30):
+            ret = tn.read_until(b"User Name:", 10).decode()
+            log.debug(ret)
+            if "User Name:" in ret:
+                break
+            if i == 18:
+                tn.close()
+                tn = Telnet(self.console_ip, self.console_port, timeout=self.console_timeout)
+        else:
+            log.error('Unable to get the login prompt')
+        tn.write(self.user.encode() + b"\n")
+
+        # After a factory reset, password is empty
+        ret = tn.read_until(b"Password:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(b"\n")
+
+        ret = tn.read_until(b"Enter new username:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(self.user.encode() + b"\n")
+
+        ret = tn.read_until(b"Enter new password:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(self.password.encode() + b"\n")
+
+        ret = tn.read_until(b"Confirm new password:").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.write(self.password.encode() + b"\n")
+
+        tn.write(b"configure\n")
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+
+        tn.write(b"logging console emergencies\n")
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+
+        tn.write(b"ip http timeout-policy 86400\n")
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+
+        tn.write(b"ip http timeout-policy absolute 604800\n")
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+
+        tn.write(b"exit\n")
+        ret = tn.read_until(b"\n").decode()
+        for line in ret.split('\n'): log.debug(line)
+        tn.close()
+
+    def _restapi_reboot(self):
+
+        session = http_session()
+        session.trust_env = False
+
+        # Start a new session to retrieve the session ID
+        response = session.get(
+            f'{self.address}/System.xml?action=login&user={self.user}&password={self.password}',
+            verify=False)
+
+        # Get the session ID needed to properly send the requests
+        session_id = response.headers['sessionID']
+
+        headers = {
+            'Accept': 'application/xml, text/xml, */*; q=0.01',
+            'Accept-Language': 'en-US,en;q=0.9,es-US;q=0.8,es;q=0.7,ko;q=0.6',
+            'Connection': 'keep-alive',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Cookie': f'ifFirstBannerWelcomeMessage=true; firstWelcomeBanner=true; activeLangId=english; sessionID={session_id}&; userName={self.user}',
+            'DNT': '1',
+            'Origin': self.address,
+            'Referer': f'{self.address}/cs654fcc5c/hpe/home.htm',
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+
+        data = '<?xml version=\'1.0\' encoding=\'utf-8\'?><DeviceConfiguration>\n<GlobalActions action="set"><factoryDefaultAndReboot></factoryDefaultAndReboot></GlobalActions>\n</DeviceConfiguration>'
+
+        try:
+            response = session.post(
+                f'{self.address}/cs654fcc5c/hpe/wcd?{{SystemGlobalSetting}}',
+                headers=headers,
+                data=data,
+                timeout=30
+            )
+        except Exception:
+            pass
+
+
+    def _set_mgmt_local_mode(self):
+        # Wait until page is avaiable
+
+        session = http_session()
+        session.trust_env = False
+
+        for _ in range(30):
+            try:
+                response = session.get(f'{self.address}:8080', verify=False, timeout=2.5, proxies=None)
+                if response.status_code == 200:
+                    break
+            except Exception as err:
+                log.debug(err)
+            sleep(10)
+        else:
+            log.error(f'Unable to set device on {self.address} to local mode')
+
+        response = session.put(
+            f'{self.address}:8080/api/managementPersonality',
+            json={'locallyManaged': True},
+            verify=False,
+        )
+        if response.status_code != 200:
+            log.error(f'Unable to set device on {self.address} to local mode')
+        return
+
+
+    def _get_config_hits(self, config1, config2):
+        c1 = [l.replace('textplaceholder', '') for l in config1[::]]
+        c2 = [l.replace('textplaceholder', '') for l in config2[::]]
+        return len(list(set(c1).intersection(c2)))
 
 
     def _wait_js_queries(self, repeat=60, delay=0.5, refresh_allowed=False):
@@ -476,14 +840,14 @@ class InstantOnDynamicEnv(gym.Env):
                 'this may affect test result.')
 
     # Helper function to log into the Web UI
-    def _login(self, user="admin", password="aruba123"):
+    def _login(self):
         inputUsername = self.wait.until(expected_conditions.element_to_be_clickable((By.ID, "inputUsername")))
         inputUsername.clear()
-        inputUsername.send_keys(user)
+        inputUsername.send_keys(self.user)
 
         inputUsername = self.wait.until(expected_conditions.element_to_be_clickable((By.ID, "inputPassword")))
         inputUsername.clear()
-        inputUsername.send_keys(password)
+        inputUsername.send_keys(self.password)
 
         submitButton = self.wait.until(expected_conditions.element_to_be_clickable((By.ID, "submitButton")))
         submitButton.click()

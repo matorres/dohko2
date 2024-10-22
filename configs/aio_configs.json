@@ -1,0 +1,18 @@
+{
+    "config0": [
+        "hostname textplaceholder"
+    ],
+    "config1": [
+        "hostname textplaceholder",
+        "snmp-server location textplaceholder",
+        "snmp-server contact textplaceholder"
+    ],
+    "config2": [
+        "passwords lockout 1",
+        "passwords complexity no-repeat 1"
+    ],
+    "config3": [
+        "FIXME",
+        "FIXME"
+    ]
+}

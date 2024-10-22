@@ -1,7 +1,7 @@
 import numpy as np
 import logging as log
 
-log.basicConfig(format='%(asctime)s,%(msecs)03.0f | %(levelname)-8s | %(module)-5s:%(lineno)-4d | %(message)s', level=log.INFO)
+log.basicConfig(format='%(asctime)s | %(levelname)-8s | %(module)-5s:%(lineno)-4d | %(message)s', level=log.INFO)
 
 # Calculate the Solution Similarity Factor
 def ssf(env, goal_config):

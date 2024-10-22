@@ -1,10 +1,18 @@
 import numpy as np
 import logging as log
 
-log.basicConfig(format='%(asctime)s,%(msecs)03.0f | %(levelname)-8s | %(module)-5s:%(lineno)-4d | %(message)s', level=log.INFO)
+log.basicConfig(format='%(asctime)s | %(levelname)-8s | %(module)-5s:%(lineno)-4d | %(message)s', level=log.INFO)
 
 class QLearningAgent:
-    def __init__(self, observation_space, action_space, learning_rate=0.1, discount_factor=0.99, epsilon=1.0, epsilon_decay=0.995, min_epsilon=0.01):
+    def __init__(
+            self,
+            observation_space,
+            action_space,
+            learning_rate=0.1,
+            discount_factor=0.99,
+            epsilon=1.0,
+            epsilon_decay=0.995,
+            min_epsilon=0.01):
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.epsilon = epsilon
@@ -32,7 +40,7 @@ class QLearningAgent:
 
         # Epsilon-greedy policy
         if np.random.rand() < self.epsilon:
-            # Explore: choose a random action
+            # Explore: choose a random actionX
             action = self.action_space.sample()
         else:
             # Exploit: choose the best action from Q-table
@@ -49,6 +57,9 @@ class QLearningAgent:
         state_tuple = tuple(state)
         # next_state_tuple = tuple(next_state.flatten()) if isinstance(next_state, np.ndarray) else (next_state,)
         next_state_tuple = tuple(next_state)
+        # print(state)
+        # print(state_tuple)
+
         q_values = self._get_q_values(state_tuple)
 
         # Update Q-value using the Q-learning formula
@@ -65,6 +76,8 @@ class QLearningAgent:
         self.epsilon = max(self.min_epsilon, self.epsilon * self.epsilon_decay)
         # log.debug('Learning end')
 
+        # print(self.q_table)
+
     def update_actions(self, env):
 
         # FIXME: Add new actions always
@@ -75,7 +88,7 @@ class QLearningAgent:
         # if env.action_space and self.epsilon < update_prob:
             return
 
-        log.info(f"Identifing new actions ...")
+        log.debug(f"Identifing new actions ...")
         new_actions = env.find_actions()
 
         if new_actions <= 0:
@@ -88,6 +101,6 @@ class QLearningAgent:
         #     self.q_table[state_tuple] = np.append(self.q_table[state_tuple], [np.zeros(new_actions)])
 
         for state in self.q_table.keys():
-            self.q_table[state] = np.append(self.q_table[state], [np.ones(new_actions)])
+            self.q_table[state] = np.append(self.q_table[state], [np.full((new_actions), 5.)])
 
         # log.info('Update actions end')
