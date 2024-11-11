@@ -1,18 +1,26 @@
 {
-    "config0": [
-        "hostname textplaceholder"
-    ],
-    "config1": [
-        "hostname textplaceholder",
-        "snmp-server location textplaceholder",
-        "snmp-server contact textplaceholder"
-    ],
-    "config2": [
-        "passwords lockout 1",
-        "passwords complexity no-repeat 1"
-    ],
-    "config3": [
-        "FIXME",
-        "FIXME"
-    ]
+    "config1": {
+        "lines": [
+            "hostname textplaceholder",
+            "snmp-server location textplaceholder",
+            "snmp-server contact textplaceholder"
+        ],
+        "min_steps": 3
+    },
+    "config2": {
+        "lines": [
+            "passwords lockout 1",
+            "passwords complexity no-repeat 1"
+        ],
+        "min_steps": 4
+    },
+    "config3": {
+        "lines": [
+            "storm-control broadcast",
+            "storm-control multicast",
+            "storm-control unicast",
+            "link-flap prevention disable"
+        ],
+        "min_steps": 3
+    }
 }

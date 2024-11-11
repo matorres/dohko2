@@ -1,7 +1,13 @@
 import numpy as np
 import logging as log
 
-log.basicConfig(format='%(asctime)s | %(levelname)-8s | %(module)-5s:%(lineno)-4d | %(message)s', level=log.INFO)
+log_format = '%(asctime)s | %(levelname)-8s | %(module)-5s:%(lineno)-4d | %(message)s'
+file_handler = log.FileHandler('experiment.logs')
+file_handler.setFormatter(log.Formatter(log_format))
+console_handler = log.StreamHandler()
+console_handler.setFormatter(log.Formatter(log_format))
+log.basicConfig(level=log.INFO, handlers=[file_handler, console_handler])
+
 
 class QLearningAgent:
     def __init__(
@@ -27,7 +33,8 @@ class QLearningAgent:
     def _get_q_values(self, state):
         # Convert state to tuple if it is an array
         # state_tuple = tuple(state.flatten()) if isinstance(state, np.ndarray) else (state,)
-        state_tuple = tuple(state)
+        # state_tuple = tuple(state)
+        state_tuple = state
 
         # Initialize Q-values for new states
         if state_tuple not in self.q_table:
@@ -36,16 +43,19 @@ class QLearningAgent:
 
     def act(self, state):
         # state_tuple = tuple(state.flatten()) if isinstance(state, np.ndarray) else (state,)
-        state_tuple = tuple(state)
+        # state_tuple = tuple(state)
+        state_tuple = state
 
         # Epsilon-greedy policy
         if np.random.rand() < self.epsilon:
-            # Explore: choose a random actionX
+            # Explore: choose a random action
             action = self.action_space.sample()
+            log.info('Action selected to explore environment ...')
         else:
             # Exploit: choose the best action from Q-table
             q_values = self._get_q_values(state_tuple)
             action = np.argmax(q_values)
+            log.info(f'Action selected to explote environment [{q_values[action]}]!')
         return action
 
     def learn(self, state, action, reward, next_state, done):
@@ -53,13 +63,20 @@ class QLearningAgent:
         if action >= self.action_space.n:
             raise ValueError("Action out of bounds")
 
+        # log.info(f"{state=}")
+        # log.info(f"{next_state=}")
         # state_tuple = tuple(state.flatten()) if isinstance(state, np.ndarray) else (state,)
-        state_tuple = tuple(state)
+        # state_tuple = tuple(state)
         # next_state_tuple = tuple(next_state.flatten()) if isinstance(next_state, np.ndarray) else (next_state,)
-        next_state_tuple = tuple(next_state)
+        # next_state_tuple = tuple(next_state)
+
+        state_tuple = state
+        next_state_tuple = next_state
         # print(state)
         # print(state_tuple)
 
+        # log.info(f"{state_tuple=}")
+        # log.info(f"{next_state_tuple=}")
         q_values = self._get_q_values(state_tuple)
 
         # Update Q-value using the Q-learning formula
@@ -80,27 +97,24 @@ class QLearningAgent:
 
     def update_actions(self, env):
 
-        # FIXME: Add new actions always
+        # FIXME: Add new actions
+        # update_prob = 1 - self.epsilon
         update_prob = 1
 
         # Identify potential new actions
         if env.action_space and np.random.rand() > update_prob:
-        # if env.action_space and self.epsilon < update_prob:
             return
 
-        log.debug(f"Identifing new actions ...")
+        log.debug("Identifing new actions ...")
         new_actions = env.find_actions()
 
         if new_actions <= 0:
-            # log.info('Update actions end')
+            log.debug('Update actions end')
             return
 
         self.action_space = env.action_space
 
-        # for state_tuple in self.q_table.keys():
-        #     self.q_table[state_tuple] = np.append(self.q_table[state_tuple], [np.zeros(new_actions)])
+        for state_tuple in self.q_table.keys():
+            self.q_table[state_tuple] = np.append(self.q_table[state_tuple], [np.zeros(new_actions)])
 
-        for state in self.q_table.keys():
-            self.q_table[state] = np.append(self.q_table[state], [np.full((new_actions), 5.)])
-
-        # log.info('Update actions end')
+        log.debug('Update actions end')
