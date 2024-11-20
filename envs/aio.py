@@ -27,7 +27,6 @@ log.basicConfig(level=log.INFO, handlers=[file_handler, console_handler])
 
 modifiable_elements = ["input", "button", "select", "textarea", "a"]
 
-
 class IODynamicEnv(gym.Env):
     def __init__(
             self, goal,
@@ -82,6 +81,7 @@ class IODynamicEnv(gym.Env):
         self._wait_js_queries()
 
         # Get initial state
+        self.unique_state_elments = set()
         self._console_set_clean_env()
         self.current_state = self.get_state()
 
@@ -99,6 +99,8 @@ class IODynamicEnv(gym.Env):
     def step(self, action):
         if action >= self.action_space.n:
             raise ValueError("Action out of bounds")
+
+        self._wait_js_queries()
 
         last_state = self.current_state
         log.info(f'State: {self.get_state_str(self.current_state)}')
@@ -157,6 +159,7 @@ class IODynamicEnv(gym.Env):
 
         # Scroll to the required element
         self.driver.execute_script('arguments[0].scrollIntoView({block:"center", inline:"center"});', element)
+        self._wait_js_queries()
 
         log.info(f'Performing action {action} [{element_id} - {element_type}]')
 
@@ -216,6 +219,7 @@ class IODynamicEnv(gym.Env):
         # Apply changes
         if apply_required:
             try:
+                self._wait_js_queries()
                 self.wait.until(
                     expected_conditions.element_to_be_clickable(
                         (By.ID, "btnApply"))).click()
@@ -234,9 +238,17 @@ class IODynamicEnv(gym.Env):
 
             log.warning('Unable to execute action')
             try:
+                self._wait_js_queries()
                 self.wait.until(
                     expected_conditions.element_to_be_clickable(
                         (By.ID, "btnTopRefresh"))).click()
+            except Exception:
+                pass
+            try:
+                self._wait_js_queries()
+                self.wait.until(
+                    expected_conditions.element_to_be_clickable(
+                        (By.ID, "modalButtonOk"))).click()
             except Exception:
                 pass
             reward = -5
@@ -263,7 +275,7 @@ class IODynamicEnv(gym.Env):
                 # if element_type == 'button':
                 #     reward = -5
                 # else:
-                reward = 0
+                reward = -5
             else:
                 log.warning('Action did not change the environment internally')
                 reward = 0
@@ -389,6 +401,12 @@ class IODynamicEnv(gym.Env):
             'menuCollapse',
             'gettingStartedConfBtn',
             'vlanConfBtn',
+            'btnTopNotification',
+            'btnTopHelp',
+            'btnRefresh',
+            'btnTopUser',
+            'user-refresh',
+            'user-filter',
             # 'Setup Network',
             'Get Connected',
             'menuIPv4Setup',
@@ -405,9 +423,10 @@ class IODynamicEnv(gym.Env):
             'txtHttpSoftTimeout',
             'txtHttpHardTimeout',
             'System Time',
-            # 'User Management',
-            'chkPasswordAging',
-            'user-accounts-add',
+
+            'User Management',
+            'interface-statistics-refresh',
+            'interface-statistics-clearall',
             'DHCP Server',
             'Schedule Configuration',
             'DNS Configuration',
@@ -421,7 +440,7 @@ class IODynamicEnv(gym.Env):
             'Loop Protection',
             'IGMP Snooping',
             'SNMP',
-            'Interface Auto Recovery',
+            # 'Interface Auto Recovery',
             'Trunk Configuration',
             'EEE Configuration',
 
@@ -457,11 +476,13 @@ class IODynamicEnv(gym.Env):
                     id_type = idt
                     break
 
+            if id_value in ['Aruba Instant On Community', 'inputUsername', 'inputPassword'] :
+                log.warning('UI not logged in.')
+                self._login()
+                return
+
             if id_value in forbidden_actions:
                 continue
-
-            if id == 'inputUsername':
-                raise Exception('UI not logged in.')
 
             # If no valid ID found, log errors and skip
             if not id_value:
@@ -505,7 +526,7 @@ class IODynamicEnv(gym.Env):
         for _, text in enumerate(features):
             # Hash the string and use modulo to get a category index
             # hash_value = int(hashlib.sha1(text.encode()).hexdigest(), 16)
-            hash_value = int(xxhash.xxh32(text).hexdigest(), 16)
+            hash_value = int(xxhash.xxh64(text).hexdigest(), 16)
             category = hash_value % num_categories
 
             # Check if there is a category already assign
@@ -580,6 +601,14 @@ class IODynamicEnv(gym.Env):
         config_file = self._console_get_config()
         config_file.sort()
 
+        # salt1 = '37fb7e85885122cdb3b7ca'
+        # salt2 = '4b3f31e2d27b1978ff6692'
+        # unique_elements = [u + salt1 for u in unique_elements]
+        # config_file = [c + salt2 for c in config_file]
+
+        for e in list(unique_elements)+list(config_file):
+            self.unique_state_elments.add(e)
+
         # Create the Raw State and encode it
         state_encodding = self.hash_one_hot_encode(
             features=list(unique_elements)+list(config_file))
@@ -591,7 +620,7 @@ class IODynamicEnv(gym.Env):
         binary_string = ''.join(str(int(bit)) for bit in state_encodding)
         state_encodding_str = hex(int(binary_string, 2))
         # state_encodding_str_hash = hashlib.sha1(state_encodding_str.encode("utf-8")).hexdigest()
-        state_encodding_str_hash = xxhash.xxh32(state_encodding_str).hexdigest()
+        state_encodding_str_hash = xxhash.xxh64(state_encodding_str).hexdigest()
         return state_encodding_str_hash
 
     def _console_get_config(self):
@@ -771,9 +800,10 @@ class IODynamicEnv(gym.Env):
             'no sntp server',
             'no sntp port'
 
-            "passwords complexity enable"
-            "no passwords lockout",
-            "no passwords complexity no-repeat",
+            "no errdisable recovery cause loopback-detection",
+            "no errdisable recovery cause port-security",
+            "no errdisable recovery cause stp-bpdu-guard",
+            "no errdisable recovery cause storm-control",
 
             "no storm-control broadcast",
             "no storm-control multicast",

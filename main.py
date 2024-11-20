@@ -32,14 +32,14 @@ with open('configs/aio_configs.json', 'r') as file:
 goal_config = data[config_name]['lines']
 min_steps = data[config_name]['min_steps']
 
-state_dim = 2048
+state_dim = 1280
 
 # Declare environment and agent
 env = IODynamicEnv(
     address='http://192.168.51.100',
     console_ip='192.168.51.100',
     goal=goal_config,
-    headless=True,
+    headless=False,
     hash_table_size=state_dim)
 
 if agent_name == 'dqn':
@@ -48,8 +48,8 @@ if agent_name == 'dqn':
         observation_space=env.observation_space,
         action_space=env.action_space,
         lr=0.001,
-        gamma=0.95,
-        epsilon_decay=0.9995,
+        gamma=0.99,
+        epsilon_decay=0.9996,
         batch_size=64,
         state_dim=state_dim)
 else:

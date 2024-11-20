@@ -114,26 +114,27 @@ class DQNAgent:
         log.debug('Update actions end')
 
     def act(self, state):
-        # if np.random.rand() < self.epsilon:
-        #     log.info('Action selected to explore environment ...')
-        #     return random.randrange(self.action_dim)
-        # else:
-        #     with torch.no_grad():
-        #         state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-        #         q_value = self.q_network(state)
-        #         log.info(f'Action selected to explote environment [{torch.max(q_value)}]!')
-        #         return torch.argmax(q_value).item()
+        # Select action using epsilon greedy
+        if np.random.rand() < self.epsilon:
+            log.info('Action selected to explore environment ...')
+            return random.randrange(self.action_dim)
+        else:
+            with torch.no_grad():
+                state = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+                q_value = self.q_network(state)
+                log.info(f'Action selected to explote environment [{torch.max(q_value)}]!')
+                return torch.argmax(q_value).item()
 
         # Select action using Softmax
-        with torch.no_grad():
-            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-            q_values = self.q_network(state_tensor).squeeze()
+        # with torch.no_grad():
+        #     state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+        #     q_values = self.q_network(state_tensor).squeeze()
 
-            # Apply Softmax to the Q values
-            action_probs = self.softmax(q_values)
-            action = np.random.choice(np.arange(len(action_probs)), p=action_probs.numpy())
+        #     # Apply Softmax to the Q values
+        #     action_probs = self.softmax(q_values)
+        #     action = np.random.choice(np.arange(len(action_probs)), p=action_probs.numpy())
 
-            log.info(f'Action selected using Softmax: {action}')
+        #     log.info(f'Action selected using Softmax: {action}')
             return action
 
     def learn(self, state, action, reward, next_state, done):

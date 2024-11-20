@@ -9,18 +9,20 @@
     },
     "config2": {
         "lines": [
-            "passwords lockout 1",
-            "passwords complexity no-repeat 1"
-        ],
-        "min_steps": 4
-    },
-    "config3": {
-        "lines": [
             "storm-control broadcast",
             "storm-control multicast",
             "storm-control unicast",
             "link-flap prevention disable"
         ],
-        "min_steps": 3
+        "min_steps": 2
+    },
+    "config3": {
+        "lines": [
+            "errdisable recovery cause loopback-detection",
+            "errdisable recovery cause port-security",
+            "errdisable recovery cause stp-bpdu-guard",
+            "errdisable recovery cause storm-control"
+        ],
+        "min_steps": 4
     }
 }
